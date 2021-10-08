@@ -148,7 +148,7 @@ func main() {
 	log.Printf("Proccessed %d Telemetry types OK!", len(telemArray))
 
 	// Prepare CSV file if requested
-	if isFlagPassed("c") == true {
+	if isFlagPassed("c") {
 		log.Println("Logging data to", csvFile)
 
 		csvHeader := ""
@@ -192,7 +192,7 @@ func readForzaData(conn *net.UDPConn, telemArray []Telemetry, csvFile string) {
 		log.Fatal("Error reading UDP data:", err, addr)
 	}
 
-	if isFlagPassed("d") == true { // Print extra connection info if debugMode set
+	if isFlagPassed("d") { // Print extra connection info if debugMode set
 		log.Println("UDP client connected:", addr)
 		// fmt.Printf("Raw Data from UDP client:\n%s", string(buffer[:n])) // Debug: Dump entire received buffer
 	}
@@ -214,7 +214,7 @@ func readForzaData(conn *net.UDPConn, telemArray []Telemetry, csvFile string) {
 	for i, T := range telemArray {
 		data := buffer[:n][T.startOffset:T.endOffset] // Process received data in chunks based on byte offsets
 
-		if isFlagPassed("d") == true { // if debugMode, print received data in each chunk
+		if isFlagPassed("d") { // if debugMode, print received data in each chunk
 			log.Printf("Data chunk %d: %v (%s) (%s)", i, data, T.name, T.dataType)
 		}
 
@@ -280,7 +280,7 @@ func readForzaData(conn *net.UDPConn, telemArray []Telemetry, csvFile string) {
 	jsonData = fmt.Sprintf("%s", jd)
 
 	// Print received data to terminal (if not in quiet mode):
-	if isFlagPassed("q") == false {
+	if !isFlagPassed("q") {
 		// Convert slip values to ints as the precision of a float means a neutral state is rarely reported
 		totalSlipRear := int(f32map["TireCombinedSlipRearLeft"] + f32map["TireCombinedSlipRearRight"])
 		totalSlipFront := int(f32map["TireCombinedSlipFrontLeft"] + f32map["TireCombinedSlipFrontRight"])
