@@ -28,6 +28,13 @@ const port = "9999"                   // UDP Port number to listen on
 const service = hostname + ":" + port // Combined hostname+port
 const jsonServerPort = ":8080"        // todo make flag Port to serve JSON api on
 
+type Mode int // Enum for mode selection
+const (
+	h4 Mode = iota
+	h5
+	m7
+)
+
 var jsonData string // Stores the JSON data to be sent out via the web server if enabled
 
 // Telemetry struct represents a piece of telemetry as defined in the Forza data format (see the .dat files)
@@ -42,14 +49,32 @@ type Telemetry struct {
 func main() {
 	// Parse flags
 	csvFilePtr := flag.String("c", "", "Log data to given file in CSV format")
-	horizonPTR := flag.Bool("z", false, "Enables Forza Horizon 4 support (Will default to Forza Motorsport if unset)")
 	noTermPTR := flag.Bool("q", false, "Disables realtime terminal output if set")
 	debugModePTR := flag.Bool("d", false, "Enables extra debug information if set")
+
+	var modeFlag string
+	flag.StringVar(&modeFlag, "m", "h5", "Select mode")
+	// modeH4Ptr := flag.Bool("h4", false, "Enables Forza Horizon 4 support (Will default to Forza Horizon 4 if unset)")
+	// modeH5Ptr := flag.Bool("h5", false, "Enables Forza Horizon 5 support (Will default to Forza Horizon 4 if unset)")
+	// modeM7Ptr := flag.Bool("m7", false, "Enables Forza Motorsprt 7 support (Will default to Forza Horizon 4 if unset)")
+
 	flag.Parse()
 	csvFile := *csvFilePtr
-	horizonMode := *horizonPTR
 	noTerm := *noTermPTR
 	debugMode := *debugModePTR
+
+	modeFlag = strings.ToLower(modeFlag)
+	var mode Mode
+	switch modeFlag {
+	case "h4", "horizon4", "4":
+		mode = h4
+	case "h5", "horizon5", "5":
+		mode = h5
+	case "m7", "motorsport7", "7":
+		mode = m7
+	default:
+		log.Fatalf("Invalid mode flag: %s", modeFlag)
+	}
 
 	SetupCloseHandler() // handle CTRL+C
 
@@ -61,17 +86,22 @@ func main() {
 		log.Println("Realtime terminal data output disabled")
 	}
 
-	// Switch to Horizon format if needed
-	var formatFile = "FM7_packetformat.dat" // Path to file containing Forzas data format
-	if horizonMode {
-		formatFile = "FH4_packetformat.dat"
-		log.Println("Forza Horizon mode selected")
-	} else {
+	// Select format file
+	var formatFileName string
+	switch mode {
+	case h4:
+		formatFileName = "FH4_packetformat.dat"
+		log.Println("Forza Horizon 4 mode selected")
+	case h5:
+		formatFileName = "FH5_packetformat.dat"
+		log.Println("Forza Horizon 5 mode selected")
+	case m7:
+		formatFileName = "FM7_packetformat.dat"
 		log.Println("Forza Motorsport mode selected")
 	}
 
 	// Load lines from packet format file
-	lines, err := readLines(formatFile)
+	linesFormatFile, err := readLines(formatFileName)
 	if err != nil {
 		log.Fatalf("Error reading format file: %s", err)
 	}
@@ -80,10 +110,10 @@ func main() {
 	startOffset := 0
 	endOffset := 0
 	dataLength := 0
-	var telemArray []Telemetry
+	var telemetryArray []Telemetry
 
-	log.Printf("Processing %s...", formatFile)
-	for i, line := range lines {
+	log.Printf("Processing %s...", formatFileName)
+	for i, line := range linesFormatFile {
 		dataClean := strings.Split(line, ";")          // remove comments after ; from data format file
 		dataFormat := strings.Split(dataClean[0], " ") // array containing data type and name
 		dataType := dataFormat[0]
@@ -95,64 +125,64 @@ func main() {
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset} // Create new Telemetry item / data point
-			telemArray = append(telemArray, telemItem)                            // Add Telemetry item to main telemetry array
+			telemetryArray = append(telemetryArray, telemItem)                    // Add Telemetry item to main telemetry array
 		case "u32": // Unsigned 32bit int
 			dataLength = 4
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset}
-			telemArray = append(telemArray, telemItem)
+			telemetryArray = append(telemetryArray, telemItem)
 		case "f32": // Floating point 32bit
 			dataLength = 4
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset}
-			telemArray = append(telemArray, telemItem)
+			telemetryArray = append(telemetryArray, telemItem)
 		case "u16": // Unsigned 16bit int
 			dataLength = 2
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset}
-			telemArray = append(telemArray, telemItem)
+			telemetryArray = append(telemetryArray, telemItem)
 		case "u8": // Unsigned 8bit int
 			dataLength = 1
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset}
-			telemArray = append(telemArray, telemItem)
+			telemetryArray = append(telemetryArray, telemItem)
 		case "s8": // Signed 8bit int
 			dataLength = 1
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset}
-			telemArray = append(telemArray, telemItem)
+			telemetryArray = append(telemetryArray, telemItem)
 		case "hzn": // Forza Horizon 4 unknown values (12 bytes of.. something)
 			dataLength = 12
 			endOffset = endOffset + dataLength
 			startOffset = endOffset - dataLength
 			telemItem := Telemetry{i, dataName, dataType, startOffset, endOffset}
-			telemArray = append(telemArray, telemItem)
+			telemetryArray = append(telemetryArray, telemItem)
 		default:
-			log.Fatalf("Error: Unknown data type in %s \n", formatFile)
+			log.Fatalf("Error: Unknown data type in %s \n", formatFileName)
 		}
 		//Debug format file processing:
 		if debugMode {
-			log.Printf("Processed %s line %d: %s (%s),  Byte offset: %d:%d \n", formatFile, i, dataName, dataType, startOffset, endOffset)
+			log.Printf("Processed %s line %d: %s (%s),  Byte offset: %d:%d \n", formatFileName, i, dataName, dataType, startOffset, endOffset)
 		}
 	}
 
 	if debugMode { // Print completed telemetry array
-		log.Printf("Logging entire telemArray: \n%v", telemArray)
+		log.Printf("Logging entire telemArray: \n%v", telemetryArray)
 	}
 
-	log.Printf("Proccessed %d Telemetry types OK!", len(telemArray))
+	log.Printf("Proccessed %d Telemetry types OK!", len(telemetryArray))
 
 	// Prepare CSV file if requested
 	if isFlagPassed("c") {
 		log.Println("Logging data to", csvFile)
 
 		csvHeader := ""
-		for _, T := range telemArray { // Construct CSV header/column names
+		for _, T := range telemetryArray { // Construct CSV header/column names
 			csvHeader += "," + T.name
 		}
 		csvHeader = csvHeader + "\n"
@@ -179,7 +209,7 @@ func main() {
 	log.Printf("Forza data out server listening on %s:%s, waiting for Forza data...\n", GetOutboundIP(), port)
 
 	for { // main loop
-		readForzaData(listener, telemArray, csvFile) // Also pass telemArray to UDP function - might be a better way instea do of passing each time?
+		readForzaData(listener, telemetryArray, csvFile) // Also pass telemArray to UDP function - might be a better way instea do of passing each time?
 	}
 }
 
