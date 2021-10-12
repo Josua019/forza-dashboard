@@ -58,7 +58,7 @@ func main() {
 	debugModePTR := flag.Bool("d", false, "Enables extra debug information if set")
 
 	var modeFlag string
-	flag.StringVar(&modeFlag, "m", "h5", "Select mode")
+	flag.StringVar(&modeFlag, "m", "", "Select mode")
 	// modeH4Ptr := flag.Bool("h4", false, "Enables Forza Horizon 4 support (Will default to Forza Horizon 4 if unset)")
 	// modeH5Ptr := flag.Bool("h5", false, "Enables Forza Horizon 5 support (Will default to Forza Horizon 4 if unset)")
 	// modeM7Ptr := flag.Bool("m7", false, "Enables Forza Motorsprt 7 support (Will default to Forza Horizon 4 if unset)")
@@ -70,11 +70,11 @@ func main() {
 
 	modeFlag = strings.ToLower(modeFlag)
 	switch modeFlag {
-	case "h4", "horizon4", "4":
+	case "h4", "fh4", "horizon4", "4":
 		mode = h4
-	case "h5", "horizon5", "5":
+	case "h5", "fh5", "horizon5", "5":
 		mode = h5
-	case "m7", "motorsport7", "7":
+	case "m7", "fm7", "motorsport7", "7":
 		mode = m7
 	default:
 		log.Fatalf("Invalid mode flag: %s", modeFlag)
