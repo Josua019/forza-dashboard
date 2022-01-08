@@ -88,3 +88,4 @@ $RECYCLE.BIN/
 
 .Telemetry Server/logs/*
 
+.vscode/settings.json

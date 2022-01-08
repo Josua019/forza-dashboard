@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"log"
 	"math"
 	"net"
+	"time"
 
 	// "time"
 	// "strconv"
@@ -19,7 +21,7 @@ import (
 
 	// "encoding/csv"
 	// "sort"
-	"encoding/json"
+
 	"net/http"
 )
 
@@ -31,6 +33,7 @@ const jsonServerPort = ":8080"        // todo make flag Port to serve JSON api o
 var csvFile string
 var noTerm bool
 var debugMode bool
+var replayModeFile string
 var mode Mode
 
 type Mode int // Enum for mode selection
@@ -40,7 +43,12 @@ const (
 	m7
 )
 
+var telemetryArray []Telemetry
+
 var jsonData string // Stores the JSON data to be sent out via the web server if enabled
+
+var replayLines [][]string
+var replayIndex int
 
 // Telemetry struct represents a piece of telemetry as defined in the Forza data format (see the .dat files)
 type Telemetry struct {
@@ -56,6 +64,7 @@ func main() {
 	csvFilePtr := flag.String("c", "", "Log data to given file in CSV format")
 	noTermPTR := flag.Bool("q", false, "Disables realtime terminal output if set")
 	debugModePTR := flag.Bool("d", false, "Enables extra debug information if set")
+	replayModeFilePTR := flag.String("r", "", "Sets replay mode and file")
 
 	var modeFlag string
 	flag.StringVar(&modeFlag, "m", "", "Select mode")
@@ -67,6 +76,7 @@ func main() {
 	csvFile = *csvFilePtr
 	noTerm = *noTermPTR
 	debugMode = *debugModePTR
+	replayModeFile = *replayModeFilePTR
 
 	modeFlag = strings.ToLower(modeFlag)
 	switch modeFlag {
@@ -105,7 +115,7 @@ func main() {
 	}
 
 	// Process format file into array of Telemetry structs
-	telemetryArray := processFromatFile(formatFileName)
+	telemetryArray = processFromatFile(formatFileName)
 
 	// Prepare CSV file if requested
 	if isFlagPassed("c") {
@@ -136,13 +146,18 @@ func main() {
 	// log.Printf("Forza data out server listening on %s, waiting for Forza data...\n", service)
 	log.Printf("Forza data out server listening on %s:%s, waiting for Forza data...\n", GetOutboundIP(), port)
 
+	if isFlagPassed("r") {
+		readCsvFile(replayModeFile)
+		go doEvery(17*time.Millisecond, playNextLine)
+	}
+
 	for { // main loop
-		readForzaData(listener, telemetryArray) // Also pass telemArray to UDP function - might be a better way instea do of passing each time?
+		readForzaData(listener) // Also pass telemArray to UDP function - might be a better way instea do of passing each time?
 	}
 }
 
 // readForzaData processes recieved UDP packets
-func readForzaData(conn *net.UDPConn, telemetryArray []Telemetry) {
+func readForzaData(conn *net.UDPConn) {
 	buffer := make([]byte, 1500)
 
 	n, addr, err := conn.ReadFromUDP(buffer)
@@ -198,37 +213,32 @@ func readForzaData(conn *net.UDPConn, telemetryArray []Telemetry) {
 	}
 
 	// Send data to JSON server:
-	var jsonArray [][]byte
+	jsonLine := ""
 
-	s32json, _ := json.Marshal(s32map)
-	jsonArray = append(jsonArray, s32json)
-
-	u32json, _ := json.Marshal(u32map)
-	jsonArray = append(jsonArray, u32json)
-
-	f32json, _ := json.Marshal(f32map)
-	jsonArray = append(jsonArray, f32json)
-
-	u16json, _ := json.Marshal(u16map)
-	jsonArray = append(jsonArray, u16json)
-
-	u8json, _ := json.Marshal(u8map)
-	jsonArray = append(jsonArray, u8json)
-
-	s8json, _ := json.Marshal(s8map)
-	jsonArray = append(jsonArray, s8json)
-
-	var jd []string
-	for i, j := range jsonArray { // concatenate json objects
-		if i == 0 {
-			jd = append(jd, string(j))
-		} else {
-			jd = append(jd, ", "+string(j))
+	for _, T := range telemetryArray { // Construct CSV line
+		jsonLine += "," + "\"" + T.name + "\":"
+		switch T.dataType {
+		case "s32":
+			jsonLine += fmt.Sprint(s32map[T.name])
+		case "u32":
+			jsonLine += fmt.Sprint(u32map[T.name])
+		case "f32":
+			jsonLine += fmt.Sprint(f32map[T.name])
+		case "u16":
+			jsonLine += fmt.Sprint(u16map[T.name])
+		case "u8":
+			jsonLine += fmt.Sprint(u8map[T.name])
+		case "s8":
+			jsonLine += fmt.Sprint(s8map[T.name])
+		case "hzn": // Forza Horizon 4 unknown values
+			jsonLine += "0"
 		}
-
 	}
+	jsonLine = jsonLine[1:]
+	jsonLine = "[{" + jsonLine + "}]"
 
-	jsonData = fmt.Sprintf("%s", jd)
+	jsonData = jsonLine
+	fmt.Println("Line", replayIndex, "read:", jsonData)
 
 	// Print received data to terminal (if not in quiet mode):
 	if !isFlagPassed("q") {
@@ -465,4 +475,55 @@ func serveJSON() {
 
 func enableCors(w *http.ResponseWriter) {
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+}
+
+//Replay functions
+func readCsvFile(filePath string) {
+	f, err := os.Open(filePath)
+	checkError(err)
+	defer f.Close()
+
+	csvReader := csv.NewReader(f)
+	replayLines, err = csvReader.ReadAll()
+	checkError(err)
+
+}
+
+func playNextLine() {
+	replayIndex++
+	if replayIndex >= len(replayLines) {
+		replayIndex = 1
+	}
+	// if f32map["CurrentEngineRpm"] == 0 {
+	// 	return
+	// }
+	line := replayLines[replayIndex]
+	//fmt.Printf("line: %v\n", line[0])
+
+	jsonLine := ""
+
+	for _, T := range telemetryArray { // Construct CSV line
+		jsonLine += "," + "\"" + T.name + "\":"
+		switch T.dataType {
+		case "hzn": // Forza Horizon 4 unknown values
+			jsonLine += "0"
+		default:
+			jsonLine += line[T.position]
+		}
+
+	}
+	jsonLine = jsonLine[1:]
+	jsonLine = "[{" + jsonLine + "}]"
+
+	jsonData = jsonLine
+
+	if debugMode {
+		fmt.Println("Line", replayIndex, "read:", jsonData)
+	}
+}
+
+func doEvery(d time.Duration, f func()) {
+	for range time.Tick(d) {
+		go f()
+	}
 }
